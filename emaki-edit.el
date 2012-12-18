@@ -1,7 +1,6 @@
 (require 'url)
 (require 'json)
 
-
 (defun get-post-content () 
   (let ((json-object-type 'hash-table))
     (goto-char (point-max))
@@ -10,26 +9,98 @@
     )
   )
   
-(defun show-post (status)
-  (progn
-    (setq postc (get-post-content))
-    (message "Title: %sContent: %s" 
-	     (gethash "title" postc)
-	     (gethash "content" postc))
-    ) 
+(defun add-rst-title (title)
+  (let* ((title-length (length title))
+	 (counter 0))
+    (while (< counter title-length)
+      (insert "=")
+      (setq counter (1+ counter)))
+    (insert "\n")
+    ))
+
+(defun draw-post-title (title)
+  (let ((title title))
+    (insert (format "%s\n" title))
+    (add-rst-title title)
+    )
   )
 
-(defun blog-get-post (id)
-  "Fetch the JSON post with the specific id from 
-   the blog"
+(defun draw-post-simple-section (name content)
+  (let ((name name) (content content))
+    (insert (format ".. %s\n%s\n" name content))
+    )
+  )
+
+(defun draw-post-abstract (abstract)
+  (draw-post-simple-section "Abstract" abstract)
+  )
+
+(defun draw-post-category (category)
+  (draw-post-simple-section "Category" category)
+)
+
+(defun draw-post-content (content)
+  (draw-post-simple-section "Content" content)
+  )
+
+(defun draw-post-tags (tags)
+  (let* ((ltags (length tags))
+	 (tags tags) 
+	 (pos 0))
+    (insert ".. Tags\n")
+    (while (< pos ltags)
+      (let* ((tag (aref tags pos)))
+	(insert (format " - %s\n" tag))
+	(setq pos (1+ pos))
+	)
+      )
+    )
+  )
+
+(defun draw-post (postc)
+  (let* ((title (gethash "title" postc))
+	 (abstract (gethash "abstract" postc))
+	 (content (gethash "content" postc))
+	 (tags (gethash "tags" postc))
+	 (category (gethash "category" postc))
+	 (pformat (gethash "format" postc))
+	 )
+    (draw-post-title title)
+    (draw-post-abstract abstract)
+    (draw-post-category category)
+    (draw-post-tags tags)
+    (draw-post-content content)
+    (if (equal pformat "rst")
+	(rst-mode)
+      )
+    )
+  )
+
+(defun show-post (status)
+  (if (null status)
+      (let* ((postc (get-post-content)))
+	(setq buffname
+	      (format "blog_post_%s.%s" 
+		      (gethash "slug" postc)
+		      (gethash "format" postc)))
+	(generate-new-buffer  buffname)
+	(switch-to-buffer buffname)
+	(draw-post postc)
+	)
+    (message "Unable to fetch post %s " (cdr status)))
+  )
+
+
+
+(defun maki-get-post (identifier)
+  "Fetch the JSON post with the id or slug (identifier) from the maki blog"
+  (interactive "sPost identifier: ")
   (let ((post-url "http://127.0.0.1:8080/post"))
     (url-retrieve 
-     (concat post-url "/" 
-	     (number-to-string id)
-	     ".json")
+     (concat post-url "/"  identifier  ".json")
      'show-post))
   )
 
-(blog-get-post 10)
+;;(maki-get-post 1)
 
 
