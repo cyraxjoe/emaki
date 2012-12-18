@@ -10,23 +10,22 @@
   )
   
 (defun add-rst-title (title)
-  (let* ((title-length (length title))
-	 (counter 0))
-    (while (< counter title-length)
-      (insert "=")
-      (setq counter (1+ counter)))
+  (progn
+    (dotimes (_ (length title)) 
+      (insert "="))
     (insert "\n")
-    ))
+    )
+  )
 
 (defun draw-post-title (title)
-  (let ((title title))
+  (progn
     (insert (format "%s\n" title))
     (add-rst-title title)
     )
   )
 
 (defun draw-post-simple-section (name content)
-  (let ((name name) (content content))
+  (progn
     (insert (format ".. %s\n%s\n" name content))
     )
   )
@@ -44,14 +43,11 @@
   )
 
 (defun draw-post-tags (tags)
-  (let* ((ltags (length tags))
-	 (tags tags) 
-	 (pos 0))
+  (progn
     (insert ".. Tags\n")
-    (while (< pos ltags)
+    (dotimes (pos (length tags))
       (let* ((tag (aref tags pos)))
 	(insert (format " - %s\n" tag))
-	(setq pos (1+ pos))
 	)
       )
     )
@@ -101,6 +97,6 @@
      'show-post))
   )
 
-;;(maki-get-post 1)
+(maki-get-post "1")
 
 
