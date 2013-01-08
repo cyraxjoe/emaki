@@ -66,8 +66,8 @@
     (draw-post-category category)
     (draw-post-tags tags)
     (draw-post-content content)
-    (if (equal pformat "rst")
-	(rst-mode)
+    (cond ((equal pformat "rst") (rst-mode))
+	  ((equal pformat "textile") (textile-mode))
       )
     )
   )
@@ -91,12 +91,16 @@
 (defun maki-get-post (identifier)
   "Fetch the JSON post with the id or slug (identifier) from the maki blog"
   (interactive "sPost identifier: ")
-  (let ((post-url "http://127.0.0.1:8080/post"))
+  (let ((post-url "http://127.0.0.1:8080/post")
+	(url-request-extra-headers 
+	 '(("Content-Type" . "application/json")
+	   ("Accept" . "application/json"))
+	 )
+	)
     (url-retrieve 
-     (concat post-url "/"  identifier  ".json")
+     (concat post-url "/"  identifier )
      'show-post))
   )
 
-(maki-get-post "1")
 
 
