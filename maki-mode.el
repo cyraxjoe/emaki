@@ -13,7 +13,7 @@
   (progn
     (dotimes (_ (length title)) 
       (insert "="))
-    (insert "\n")
+    (insert "\n\n")
     )
   )
 
@@ -26,7 +26,7 @@
 
 (defun draw-post-simple-section (name content)
   (progn
-    (insert (format ".. %s\n%s\n" name content))
+    (insert (format ".. %s\n%s\n\n" name content))
     )
   )
 
@@ -50,6 +50,7 @@
 	(insert (format " - %s\n" tag))
 	)
       )
+    (insert "\n")
     )
   )
 
@@ -79,7 +80,12 @@
 	      (format "blog_post_%s.%s" 
 		      (gethash "slug" postc)
 		      (gethash "format" postc)))
-	(generate-new-buffer  buffname)
+	(if  (get-buffer  buffname)
+	    (if (equal (read-string "The post is already loaded. Reload? (y/n)" )
+		       "y")
+		(kill-buffer buffname)
+	      )
+	  (generate-new-buffer buffname))
 	(switch-to-buffer buffname)
 	(draw-post postc)
 	)
@@ -102,5 +108,58 @@
      'show-post))
   )
 
+(defun maki-save-post () ""
+  (interactive)
+  (let* ((opos (point))
+	 (post (makehash)))
+    (save-excursion)
+    (puthash "title" (get-current-title) post)
+    (puthash "abstract" (get-current-abstract) post)
+    (puthash "tags" (get-current-tags) post)
+    (puthash "content" (get-current-content) post)
+    (goto-char opos)
+    (message (json-encode post))
+    )
+  )
+
+(defun get-current-title () ""
+    (progn
+      (goto-char 1)
+      (thing-at-point `line)
+      )
+    )
+
+(defun get-range-from (mytag nexttag) ""
+  (let (start stop)
+    (goto-char 1)
+    (setq start (1+ (re-search-forward (format "^%s$" mytag) nil t)))
+    (setq stop (re-search-forward (format "^%s$" nexttag) nil t))
+    (buffer-substring  start  (- stop (length nexttag)))
+    )
+)
+
+(defun get-current-abstract () ""
+  (let ((abstract ".. Abstract")
+	(category ".. Category"))
+    (get-range-from abstract category)
+    )
+)
+
+(defun get-current-tags () ""
+  (let ((tags ".. Tags")
+	(content ".. Content")
+	(tag-cnt nil))
+    (setq tag-cnt (get-range-from tags content))
+    (split-string (replace-regexp-in-string ".*- " "" tag-cnt))
+    )
+  )
 
 
+(defun get-current-content () ""
+  (let (start end)
+    (goto-char 1)
+    (setq start (1+ (re-search-forward "^.. Content$" nil t)))
+    (setq end (1- (point-max)))
+    (buffer-substring start end)
+    )
+  )
