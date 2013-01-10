@@ -19,8 +19,6 @@
 (setq maki-post-mode-map (make-sparse-keymap))
 
 
-
-
 (defun maki-mode ()
   "Major mode to edit the maki blog."
   (interactive)
@@ -31,6 +29,7 @@
     (setq maki-curr-post nil)
     (setq major-mode 'maki-mode)
     (setq mode-name "Maki")
+    (setq buffer-read-only t)
     (use-local-map maki-mode-map)
     )
   )
@@ -59,6 +58,18 @@
     (url-retrieve  (concat post-url "/"  identifier ) 'maki-show-post))
   )
 
+(defun maki-confirm-save (status postbuff) 
+  "Check the response of the server and inform the results."
+  (if (null status)
+      (with-current-buffer postbuff
+	(message "Post successfully saved") 
+	(set-buffer-modified-p nil)
+	)
+    (message "Unable to save %s" status)
+    (message (buffer-substring (point-min) (point-max)))
+    )
+  )
+
 
 (defun maki-save-post () 
   "Save the changes to the blog post. Do not ask for confirmation."
@@ -69,18 +80,25 @@
       (puthash "abstract" (maki-get-current-abstract) post)
       (puthash "tags" (maki-get-current-tags) post)
       (puthash "content" (maki-get-current-content) post)
-      (puthash "id" maki-post-id post)
-      (message (json-encode post))
       )
-    (set-buffer-modified-p nil)
-    )
+      (let ((cbuffer (current-buffer))
+	    (url-request-method "POST")
+	    (url-request-extra-headers 
+	     '(("Content-type" . "application/json")
+	       ("Accept". "application/json")))
+	    (url-request-data (json-encode post)))
+	(url-retrieve (maki-post-url maki-post-id) 
+		      'maki-confirm-save 
+		      (list cbuffer))
+	)
+      )
   )
 
 (defun maki-ask-save-post () 
   "Save the changes to the blog post, but confirm first."
   (interactive)
   (if (buffer-modified-p) 
-      (if (equal "y" (read-string "Do you really wanna save the changes? (y/n)"))
+      (if (equal "y" (read-string "Do you really wanna save the changes? (y/n): "))
 	  (maki-save-post)
 	nil)
       (message "The blog post has not been modified.")
@@ -96,10 +114,9 @@
 		      (gethash "slug" postc)
 		      (gethash "id" postc)))
 	(if  (get-buffer  buffname)
-	    (if (equal (read-string "The post is already loaded. Reload? (y/n)" )
+	    (if (equal (read-string "The post is already loaded. Reload? (y/n): " )
 		       "y")
-		(kill-buffer buffname)
-	      )
+		(kill-buffer buffname))
 	  (generate-new-buffer buffname))
 	(setq maki-curr-post (gethash "id" postc)) ;; before switching buffer
 	(switch-to-buffer buffname)
@@ -116,8 +133,10 @@
   )
 
 
-(defun maki-post-url ()
-  (concat maki-host maki-post-uri)
+(defun maki-post-url (&optional pid)
+  (if (null pid)
+      (concat maki-host maki-post-uri)
+    (concat maki-host maki-post-uri "/update/" (number-to-string pid)))
   )
 
 
