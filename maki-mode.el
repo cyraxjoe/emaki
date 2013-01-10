@@ -3,8 +3,25 @@
 (require 'url)
 (require 'json)
 
-(defconst maki-host "http://127.0.0.1:8080" )
-(defconst maki-post-uri "/post")
+(defconst maki-mode-version "0.1"
+  "Version of `maki-mode'.")
+
+(defgroup maki nil 
+  "Maki bloggin major mode")
+
+(defcustom maki-host "http://127.0.0.1:8080" 
+  "Base host url"
+  :type 'string
+  :group 'maki)
+
+(defcustom maki-post-uri "/post/"
+  "URI to fetch the post content"
+  :type 'string
+  :group 'maki)
+
+(defcustom maki-mode-hook nil 
+  "Hook caled by `maki-mode'. Use this to customize."
+)
 
 (defvar maki-mode-map nil
   "Local key map to the maki mode.")
@@ -14,48 +31,17 @@
   )
 
 (setq maki-mode-map (make-sparse-keymap))
-(define-key maki-mode-map "\C-xo" 'maki-get-post)
-
+(define-key maki-mode-map "\C-c\C-f" 'maki-get-post)
 (setq maki-post-mode-map (make-sparse-keymap))
 
 
-(defun maki-mode ()
-  "Major mode to edit the maki blog."
-  (interactive)
-  (progn 
-    (pop-to-buffer "*Maki*")
-    (kill-all-local-variables)
-    (make-local-variable 'maki-curr-post)
-    (setq maki-curr-post nil)
-    (setq major-mode 'maki-mode)
-    (setq mode-name "Maki")
-    (setq buffer-read-only t)
-    (use-local-map maki-mode-map)
-    )
-  )
-
-(define-minor-mode maki-post-mode
-  "Set the minor mode for the post edition.
-     With no argument, this command toggles the mode.
-     Non-null prefix argument turns on the mode.
-     Null prefix argument turns off the mode."
-  :init-value nil
-  :lighter " maki-post"
-  :keymap 'maki-post-mode-map
-  )
-
-
-
-(defun maki-get-post (identifier)
+(defun maki-get-post (pid)
   "Fetch the JSON post with the id or slug (identifier) from the maki blog"
-  (interactive "sPost identifier: ")
-  (let ((post-url (maki-post-url))
-	(url-request-extra-headers 
+  (interactive "nPost id: ")
+  (let ((url-request-extra-headers 
 	 '(("Content-Type" . "application/json")
-	   ("Accept" . "application/json"))
-	 )
-	)
-    (url-retrieve  (concat post-url "/"  identifier ) 'maki-show-post))
+	   ("Accept" . "application/json"))))
+    (url-retrieve  (maki-post-url pid) 'maki-show-post))
   )
 
 (defun maki-confirm-save (status postbuff) 
@@ -87,7 +73,7 @@
 	     '(("Content-type" . "application/json")
 	       ("Accept". "application/json")))
 	    (url-request-data (json-encode post)))
-	(url-retrieve (maki-post-url maki-post-id) 
+	(url-retrieve (maki-post-update-url maki-post-id) 
 		      'maki-confirm-save 
 		      (list cbuffer))
 	)
@@ -133,10 +119,12 @@
   )
 
 
-(defun maki-post-url (&optional pid)
-  (if (null pid)
-      (concat maki-host maki-post-uri)
-    (concat maki-host maki-post-uri "/update/" (number-to-string pid)))
+(defun maki-post-url (pid)
+  (concat maki-host maki-post-uri (number-to-string pid))
+  )
+
+(defun maki-post-update-url (pid)
+  (concat maki-host maki-post-uri "/update/" (number-to-string pid))
   )
 
 
@@ -273,3 +261,28 @@
     )
   )
 
+(defun maki-mode ()
+  "Major mode to edit the maki blog."
+  (interactive)
+  (progn 
+    (pop-to-buffer "*Maki*")
+    (kill-all-local-variables)
+    (make-local-variable 'maki-curr-post)
+    (setq maki-curr-post nil)
+    (setq major-mode 'maki-mode)
+    (setq mode-name "Maki")
+    (setq buffer-read-only t)
+    (use-local-map maki-mode-map)
+    )
+  )
+
+(define-minor-mode maki-post-mode
+  "Set the minor mode for the post edition.
+     With no argument, this command toggles the mode.
+     Non-null prefix argument turns on the mode.
+     Null prefix argument turns off the mode."
+  :init-value nil
+  :lighter " maki-post"
+  :keymap 'maki-post-mode-map)
+
+(provide 'maki-mode)
