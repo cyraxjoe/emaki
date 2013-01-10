@@ -24,9 +24,11 @@
   :type 'string
   :group 'maki)
 
-(defcustom maki-mode-hook nil 
-  "Hook caled by `maki-mode'. Use this to customize."
-)
+(defcustom maki-login-uri "/login/"
+  "URI to authenticate in the server."
+  :type 'string
+  :group 'maki)
+
 
 (defcustom maki-banner 
   (mapconcat 'identity 
@@ -43,7 +45,28 @@
 	       "        \\_|  |_/ \\__,_||_|\\_\\|_|      "
 	       "                                      "
 	       "               Welcome                ") "\n")
-  "Text to be displayed at the begining of the maki-mode.")
+  "Text to be displayed at the begining of the maki-mode."
+  :type 'string
+  :group 'maki)
+
+(defcustom maki-user nil
+  "User to be used in the maki server. If `nil' ask the user."
+  :type 'string
+  :group 'maki)
+
+(defcustom maki-passwd nil
+  "Password to be used in the maki server. If `nil' ask user."
+  :type 'string
+  :group 'maki)
+
+(defcustom maki-autologin t
+  "Try to login when the mode is invoked."
+  :type 'boolean
+  :group 'maki)
+
+(defcustom maki-mode-hook nil 
+  "Hook caled by `maki-mode'. Use this to customize."
+)
 
 
 ;; keybinding
@@ -57,41 +80,32 @@
 (setq maki-mode-map (make-sparse-keymap))
 (define-key maki-mode-map "\C-c\C-f" 'maki-get-post)
 (setq maki-post-mode-map (make-sparse-keymap))
+;;
 
-;;utilities
+;; utilities
 (defun chomp (str)
   "Chomp leading and tailing whitespace from STR."
   (while (string-match "\\`\n+\\|^\\s-+\\|\\s-+$\\|\n+\\'"
 		       str)
     (setq str (replace-match "" t t str)))
   str)
+
+(defun maki-json-headers ()
+  '(("Content-Type" . "application/json")
+    ("Accept" . "application/json"))
+  )
 ;;
 
-
+;; HTTP request related functions
 (defun maki-get-post (pid)
   "Fetch the JSON post with the id or slug (identifier) from the maki blog"
   (interactive "nPost id: ")
-  (let ((url-request-extra-headers 
-	 '(("Content-Type" . "application/json")
-	   ("Accept" . "application/json"))))
+  (let ((url-request-extra-headers (maki-json-headers)))
     (if maki-debug
 	(message "Fetching '%s' " (maki-post-url pid))
       )
     (url-retrieve  (maki-post-url pid) 'maki-show-post))
   )
-
-(defun maki-confirm-save (status postbuff) 
-  "Check the response of the server and inform the results."
-  (if (null status)
-      (with-current-buffer postbuff
-	(message "Post successfully saved") 
-	(set-buffer-modified-p nil)
-	)
-    (message "Unable to save %s" status)
-    (message (buffer-substring (point-min) (point-max)))
-    )
-  )
-
 
 (defun maki-save-post () 
   "Save the changes to the blog post. Do not ask for confirmation."
@@ -109,14 +123,25 @@
 	)
     (let ((cbuffer (current-buffer))
 	  (url-request-method "POST")
-	  (url-request-extra-headers 
-	   '(("Content-type" . "application/json")
-	     ("Accept". "application/json")))
+	  (url-request-extra-headers (maki-json-headers))
 	  (url-request-data (json-encode post)))
       (url-retrieve (maki-post-update-url maki-post-id) 
 		    'maki-confirm-save 
 		    (list cbuffer))
       )
+    )
+  )
+;;
+
+(defun maki-confirm-save (status postbuff) 
+  "Check the response of the server and inform the results."
+  (if (null status)
+      (with-current-buffer postbuff
+	(message "Post successfully saved") 
+	(set-buffer-modified-p nil)
+	)
+    (message "Unable to save %s" status)
+    (message (buffer-substring (point-min) (point-max)))
     )
   )
 
@@ -160,11 +185,20 @@
 
 (defun maki-get-post-content () 
   "Parse the body of the GET response, return a hash with the received JSON."
+  (progn
+    (if maki-debug
+	(message "Parsing json post content")
+	)
+    (maki-get-json-response)
+    ))
+
+(defun maki-get-json-response () 
+  "This is meant to be used in the url-retrieve callbacks."
   (let ((json-object-type 'hash-table))
     (goto-char (point-max))
     (setq cnt (thing-at-point `line))
     (if maki-debug
-	(message "JSON post content \n %s" cnt))
+	(message "JSON Response content \n %s" cnt))
     (json-read-from-string cnt)
     )
   )
@@ -173,6 +207,10 @@
 
 (defun maki-post-url (pid)
   (concat maki-host maki-post-uri (number-to-string pid))
+  )
+
+(defun maki-login-url ()
+  (concat maki-host maki-login-uri)
   )
 
 (defun maki-post-update-url (pid)
@@ -286,6 +324,79 @@
     )
   )
 
+;; Authentication related function
+
+(defun maki-login (&optional refresh)
+  "Login to the server"
+  (interactive "sRefresh auth data?: ")
+  (let ((user (maki-auth-get-user refresh))
+	(passwd (maki-auth-get-passwd refresh)))
+	
+    (let* ((url-request-method "POST")
+	   (url-request-extra-headers (maki-json-headers))
+	   (url-request-data 
+	    (json-encode (list (cons "user" user) 
+			       (cons "passwd" passwd))
+			 )))
+      (url-retrieve (maki-login-url) 'maki-login-check)
+      (if maki-debug
+	  (progn
+	    (message "Loggin in with %s %s" user passwd)
+	    (message "Request data %s" url-request-data )
+	    )
+	)
+      )
+    ))
+
+(defun maki-login-check (status)
+  "Validate the response of the server."
+  (if (null status)
+      (let ((json-false nil))
+	(let ((response (maki-get-json-response)))
+	  (if maki-debug
+	      (message "Login server response %s" response)
+	    )
+	  (if (null (gethash "authenticated" response))
+	      (message "Unable to login, Invalid authentication.")
+	    (message "Successfully logged in.")
+	    )
+	  )
+	)
+    (message "Unable to login")
+    (message (buffer-substring (point-min) (point-max)))
+    )
+  )
+
+(defun maki-auth-get-user (&optional refresh)
+  (progn 
+    (if refresh
+	(setq maki-user nil)
+      )
+    (if (null maki-user)
+	(setq maki-user (read-string "User: "))
+      )
+    maki-user)
+  )
+
+(defun maki-auth-get-passwd (&optional refresh)
+  "Get the user password, if is not defined use password-cache ask and return."
+  (progn 
+    (if refresh
+	(progn
+	  (setq maki-passwd nil)
+	  (password-cache-remove "maki")
+	  )
+      )
+    )
+  (if (null maki-passwd)
+      (let* ((passwd (password-read "Password: " "maki")))
+	(password-cache-add "maki" passwd)
+	passwd)
+    maki-passwd)
+  )
+;;
+
+
 
 (defun maki-set-post-mode () 
   "Setup the environment in the maki-post minor mode."
@@ -315,6 +426,9 @@
     (setq mode-name "Maki")
     (setq buffer-read-only t)
     (use-local-map maki-mode-map)
+    (if maki-autologin
+	(maki-login)
+	)
     )
   )
 
