@@ -28,6 +28,23 @@
   "Hook caled by `maki-mode'. Use this to customize."
 )
 
+(defcustom maki-banner 
+  (mapconcat 'identity 
+	     '(
+	       "    ,;'O@';,    ,;'O@';,    ,;'O@';,  "
+	       "   |',_@H_,'|  |',_@H_,'|  |',_@H_,'| "
+	       "   |        |  |        |  |        | "
+	       "    '.____.'    '.____.'    '.____.'  "
+	       "        ___  ___        _     _       "
+	       "        |  \\/  |       | |   (_)      "
+	       "        | .  . |  __ _ | | __ _       "
+	       "        | |\\/| | / _` || |/ /| |      "
+	       "        | |  | || (_| ||   < | |      "
+	       "        \\_|  |_/ \\__,_||_|\\_\\|_|      "
+	       "                                      "
+	       "               Welcome                ") "\n")
+  "Text to be displayed at the begining of the maki-mode.")
+
 
 ;; keybinding
 (defvar maki-mode-map nil
@@ -48,7 +65,7 @@
 		       str)
     (setq str (replace-match "" t t str)))
   str)
-
+;;
 
 
 (defun maki-get-post (pid)
@@ -290,6 +307,7 @@
   (interactive)
   (progn 
     (switch-to-buffer "*Maki*")
+    (insert maki-banner)
     (kill-all-local-variables)
     (make-local-variable 'maki-curr-post)
     (setq maki-curr-post nil)
