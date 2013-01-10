@@ -14,6 +14,11 @@
   :type 'string
   :group 'maki)
 
+(defcustom maki-debug nil
+  "Set to not nil to show debugging messages"
+  :type 'boolean
+  :group 'maki)
+
 (defcustom maki-post-uri "/post/"
   "URI to fetch the post content"
   :type 'string
@@ -23,6 +28,8 @@
   "Hook caled by `maki-mode'. Use this to customize."
 )
 
+
+;; keybinding
 (defvar maki-mode-map nil
   "Local key map to the maki mode.")
 
@@ -34,6 +41,15 @@
 (define-key maki-mode-map "\C-c\C-f" 'maki-get-post)
 (setq maki-post-mode-map (make-sparse-keymap))
 
+;;utilities
+(defun chomp (str)
+  "Chomp leading and tailing whitespace from STR."
+  (while (string-match "\\`\n+\\|^\\s-+\\|\\s-+$\\|\n+\\'"
+		       str)
+    (setq str (replace-match "" t t str)))
+  str)
+
+
 
 (defun maki-get-post (pid)
   "Fetch the JSON post with the id or slug (identifier) from the maki blog"
@@ -41,6 +57,9 @@
   (let ((url-request-extra-headers 
 	 '(("Content-Type" . "application/json")
 	   ("Accept" . "application/json"))))
+    (if maki-debug
+	(message "Fetching '%s' " (maki-post-url pid))
+      )
     (url-retrieve  (maki-post-url pid) 'maki-show-post))
   )
 
@@ -67,17 +86,21 @@
       (puthash "tags" (maki-get-current-tags) post)
       (puthash "content" (maki-get-current-content) post)
       )
-      (let ((cbuffer (current-buffer))
-	    (url-request-method "POST")
-	    (url-request-extra-headers 
-	     '(("Content-type" . "application/json")
-	       ("Accept". "application/json")))
-	    (url-request-data (json-encode post)))
-	(url-retrieve (maki-post-update-url maki-post-id) 
-		      'maki-confirm-save 
-		      (list cbuffer))
+    (if maki-debug
+	(message "Posting post hash = %s\njson = %s " 
+		 post (json-encode post))
 	)
+    (let ((cbuffer (current-buffer))
+	  (url-request-method "POST")
+	  (url-request-extra-headers 
+	   '(("Content-type" . "application/json")
+	     ("Accept". "application/json")))
+	  (url-request-data (json-encode post)))
+      (url-retrieve (maki-post-update-url maki-post-id) 
+		    'maki-confirm-save 
+		    (list cbuffer))
       )
+    )
   )
 
 (defun maki-ask-save-post () 
@@ -118,6 +141,18 @@
     (message "Unable to fetch post %s " (cdr status)))
   )
 
+(defun maki-get-post-content () 
+  "Parse the body of the GET response, return a hash with the received JSON."
+  (let ((json-object-type 'hash-table))
+    (goto-char (point-max))
+    (setq cnt (thing-at-point `line))
+    (if maki-debug
+	(message "JSON post content \n %s" cnt))
+    (json-read-from-string cnt)
+    )
+  )
+  
+
 
 (defun maki-post-url (pid)
   (concat maki-host maki-post-uri (number-to-string pid))
@@ -128,33 +163,25 @@
   )
 
 
-(defun maki-get-post-content () 
-  (let ((json-object-type 'hash-table))
-    (goto-char (point-max))
-    (setq cnt (thing-at-point `line))
-    (json-read-from-string cnt)
-    )
-  )
-  
-(defun maki-add-rst-title (title)
+;; Function to format the fetched post from the server.
+(defun maki-draw-rst-title (title)
   (progn
     (dotimes (_ (length title)) 
       (insert "="))
-    (insert "\n\n")
+    (insert "\n")
     )
   )
 
 (defun maki-draw-post-title (title)
   (progn
     (insert (format "%s\n" title))
-    (maki-add-rst-title title)
+    (maki-draw-rst-title title)
     )
   )
 
 (defun maki-draw-post-simple-section (name content)
-  (progn
-    (insert (format ".. %s\n%s\n\n" name content))
-    )
+  (insert (format ".. %s\n%s\n" name content))
+  
   )
 
 (defun maki-draw-post-abstract (abstract)
@@ -177,7 +204,6 @@
 	(insert (format " - %s\n" tag))
 	)
       )
-    (insert "\n")
     )
   )
 
@@ -201,11 +227,10 @@
     )
   )
 
-
 (defun maki-get-current-title () 
     (progn
       (goto-char 1)
-      (thing-at-point `line)
+      (chomp (thing-at-point `line))
       )
     )
 
@@ -221,7 +246,7 @@
 (defun maki-get-current-abstract () 
   (let ((abstract ".. Abstract")
 	(category ".. Category"))
-    (maki-get-range-from abstract category)
+    (chomp (maki-get-range-from abstract category))
     )
 )
 
@@ -246,9 +271,8 @@
 
 
 (defun maki-set-post-mode () 
-  "Setup the environment in the maki-post minour mode."
+  "Setup the environment in the maki-post minor mode."
   (progn
-    (message "setting post mode...")
     (make-local-variable 'maki-post-id)
     ;; Overwrite the default save process, with a hardoced "t"
     ;; to always stop the chain of hooks.
@@ -265,7 +289,7 @@
   "Major mode to edit the maki blog."
   (interactive)
   (progn 
-    (pop-to-buffer "*Maki*")
+    (switch-to-buffer "*Maki*")
     (kill-all-local-variables)
     (make-local-variable 'maki-curr-post)
     (setq maki-curr-post nil)
