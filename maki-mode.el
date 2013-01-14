@@ -122,6 +122,7 @@
       (puthash "content" (maki-get-current-content) post)
       (puthash "category" (maki-get-current-category) post)
       (puthash "format" "rst" post) 
+      (puthash "lang" "EN" post)
       )
     (if maki-debug
 	(message "Posting post hash = %s\njson = %s " 
