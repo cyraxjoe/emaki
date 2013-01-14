@@ -79,6 +79,7 @@
 
 (setq maki-mode-map (make-sparse-keymap))
 (define-key maki-mode-map "\C-c\C-f" 'maki-get-post)
+(define-key maki-mode-map "\C-c\C-c" 'maki-new-post)
 (setq maki-post-mode-map (make-sparse-keymap))
 ;;
 
@@ -110,35 +111,58 @@
 (defun maki-save-post () 
   "Save the changes to the blog post. Do not ask for confirmation."
   (interactive)
-  (let* ((post (makehash)))
+  (let* ((post (makehash))
+	 (is-new (null maki-post-id))
+	 (update-url nil) ;; this is settle with `is-new'
+	 )
     (save-excursion
       (puthash "title" (maki-get-current-title) post)
       (puthash "abstract" (maki-get-current-abstract) post)
       (puthash "tags" (maki-get-current-tags) post)
       (puthash "content" (maki-get-current-content) post)
+      (puthash "category" (maki-get-current-category) post)
+      (puthash "format" "rst" post) 
       )
     (if maki-debug
 	(message "Posting post hash = %s\njson = %s " 
 		 post (json-encode post))
 	)
+    (if is-new
+	(setq update-url (maki-post-add-url))
+      (setq update-url (maki-post-update-url maki-post-id))
+      )
+
     (let ((cbuffer (current-buffer))
 	  (url-request-method "POST")
 	  (url-request-extra-headers (maki-json-headers))
 	  (url-request-data (json-encode post)))
-      (url-retrieve (maki-post-update-url maki-post-id) 
-		    'maki-confirm-save 
-		    (list cbuffer))
+      (url-retrieve update-url  'maki-confirm-save 
+		    (list cbuffer is-new))
       )
     )
   )
 ;;
 
-(defun maki-confirm-save (status postbuff) 
+(defun maki-confirm-save (status postbuff is-new) 
   "Check the response of the server and inform the results."
   (if (null status)
-      (with-current-buffer postbuff
-	(message "Post successfully saved") 
-	(set-buffer-modified-p nil)
+      (let ((json-false nil)
+	    (json-object-type 'hash-table))
+	(let ((response (maki-get-json-response)))
+	  (with-current-buffer postbuff
+	    (if is-new
+		(let ((buffname nil)
+		      (posthash (json-read-from-string
+			     (gethash "message" response))))
+		  (setq maki-post-id   (gethash "id" posthash))
+		  (rename-buffer (maki-get-buffname posthash))
+		  )
+	      )
+	    (message "Post successfully saved") 
+	    (set-buffer-modified-p nil)
+	    
+	    )
+	  )
 	)
     (message "Unable to save %s" status)
     (message (buffer-substring (point-min) (point-max)))
@@ -157,31 +181,44 @@
   )
 
 
+(defun maki-setup-post (buffname postc) 
+  (progn
+    (switch-to-buffer buffname)
+    (maki-draw-post postc)
+    (set-visited-file-name buffname)
+    (set-buffer-modified-p nil) ;; to remove the **
+    (progn  ;; maki-post-mode minor mode changes
+      (maki-post-mode)
+      (maki-set-post-mode)
+      (setq maki-post-id (gethash "id" postc)) ;; this is in the minor mode
+      )
+    )
+  )
+
 (defun maki-show-post (status)
   (if (null status)
       (let* ((postc (maki-get-post-content)))
-	(setq buffname
-	      (format "blogpost (%s) [%s]"
-		      (gethash "slug" postc)
-		      (gethash "id" postc)))
+	(setq buffname (maki-get-buffname postc))
 	(if  (get-buffer  buffname)
 	    (if (equal (read-string "The post is already loaded. Reload? (y/n): " )
 		       "y")
 		(kill-buffer buffname))
 	  (generate-new-buffer buffname))
 	(setq maki-curr-post (gethash "id" postc)) ;; before switching buffer
-	(switch-to-buffer buffname)
-	(maki-draw-post postc)
-	(set-visited-file-name buffname)
-	(set-buffer-modified-p nil) ;; to remove the **
-	(progn  ;; maki-post-mode minor mode changes
-	  (maki-post-mode)
-	  (maki-set-post-mode)
-	  (setq maki-post-id (gethash "id" postc)) ;; this is in the minor mode
-	  )
+	(maki-setup-post buffname postc)
 	)
     (message "Unable to fetch post %s " (cdr status)))
   )
+
+(defun maki-new-post ()
+  "Set a new buffer with the default template."
+  (interactive)
+  (let ((buffname (maki-get-buffname))
+	(dummypost (makehash)))
+    (maki-setup-post buffname dummypost)
+    )
+  )
+
 
 (defun maki-get-post-content () 
   "Parse the body of the GET response, return a hash with the received JSON."
@@ -207,6 +244,10 @@
 
 (defun maki-post-url (pid)
   (concat maki-host maki-post-uri (number-to-string pid))
+  )
+
+(defun maki-post-add-url () 
+  (concat maki-host maki-post-uri "/add/")
   )
 
 (defun maki-login-url ()
@@ -263,12 +304,13 @@
   )
 
 (defun maki-draw-post (postc)
-  (let* ((title (gethash "title" postc))
-	 (abstract (gethash "abstract" postc))
-	 (content (gethash "content" postc))
-	 (tags (gethash "tags" postc))
-	 (category (gethash "category" postc))
-	 (pformat (gethash "format" postc))
+  "Draw the post in the new buffer, postc could be an empty hash."
+  (let* ((title (gethash "title" postc "New Post Title"))
+	 (abstract (gethash "abstract" postc ""))
+	 (content (gethash "content" postc ""))
+	 (tags (gethash "tags" postc nil))
+	 (category (gethash "category" postc ""))
+	 (pformat (gethash "format" postc "rst"))
 	 )
     (maki-draw-post-title title)
     (maki-draw-post-abstract abstract)
@@ -324,6 +366,14 @@
     )
   )
 
+(defun maki-get-current-category () 
+  (let ((category ".. Category")
+	(tags ".. TAgs"))
+    (chomp (maki-get-range-from category tags))
+    )
+)
+
+
 ;; Authentication related function
 
 (defun maki-login (&optional refresh)
@@ -362,8 +412,8 @@
 	    )
 	  )
 	)
-    (message "Unable to login")
     (message (buffer-substring (point-min) (point-max)))
+    (message "Unable to login")
     )
   )
 
@@ -396,6 +446,19 @@
   )
 ;;
 
+
+(defun maki-get-buffname (&optional posthash) 
+  "Get the appropiate name of the maki post buffer from posthash"
+  (let ((slug "new") (id "*new*"))
+    (if posthash
+	(progn
+	  (setq slug (gethash "slug" posthash))
+	  (setq id (gethash "id" posthash))
+	  )
+      )
+    (format "blogpost (%s) [%s]" slug id)
+    )
+  )
 
 
 (defun maki-set-post-mode () 
