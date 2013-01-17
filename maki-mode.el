@@ -59,6 +59,13 @@
   :type 'string
   :group 'maki)
 
+
+(defcustom maki-def-lang "en"
+  "Default language to the new posts."
+  :type 'string
+  :group 'maki)
+
+
 (defcustom maki-autologin t
   "Try to login when the mode is invoked."
   :type 'boolean
@@ -70,6 +77,7 @@
 
 
 ;; keybinding
+
 (defvar maki-mode-map nil
   "Local key map to the maki mode.")
 
@@ -80,8 +88,12 @@
 (setq maki-mode-map (make-sparse-keymap))
 (define-key maki-mode-map "\C-c\C-f" 'maki-get-post)
 (define-key maki-mode-map "\C-c\C-c" 'maki-new-post)
+
 (setq maki-post-mode-map (make-sparse-keymap))
-;;
+(define-key maki-post-mode-map "\C-c\C-l" 'maki-post-set-lang)
+
+;; end of keybinding
+
 
 ;; utilities
 (defun chomp (str)
@@ -122,7 +134,7 @@
       (puthash "content" (maki-get-current-content) post)
       (puthash "category" (maki-get-current-category) post)
       (puthash "format" "rst" post) 
-      (puthash "lang" "en" post)
+      (puthash "lang" maki-post-lang post)
       )
     (if maki-debug
 	(message "Posting post hash = %s\njson = %s " 
@@ -192,6 +204,7 @@
       (maki-post-mode)
       (maki-set-post-mode)
       (setq maki-post-id (gethash "id" postc)) ;; this is in the minor mode
+      (setq maki-post-lang (gethash "lang" postc maki-def-lang)) ;; default to english
       )
     )
   )
@@ -455,9 +468,10 @@
 	(progn
 	  (setq slug (gethash "slug" posthash))
 	  (setq id (gethash "id" posthash))
+	  (setq lang (gethash "lang" posthash))
 	  )
       )
-    (format "blogpost (%s) [%s]" slug id)
+    (format "blogpost (%s) [%s] -%s-" slug id lang)
     )
   )
 
@@ -466,6 +480,8 @@
   "Setup the environment in the maki-post minor mode."
   (progn
     (make-local-variable 'maki-post-id)
+    (make-local-variable 'maki-post-lang)
+    
     ;; Overwrite the default save process, with a hardoced "t"
     ;; to always stop the chain of hooks.
     (make-local-variable 'write-file-functions)
@@ -474,6 +490,24 @@
 	      '(lambda () "Catch the save execution to save the changes"
 		 (progn (maki-ask-save-post) t) 
 		 )))
+    )
+  )
+
+(defun maki-post-set-lang (lang)
+  "Set the language of the post"
+  (interactive "sLang code (es/en): ")
+  (if (and (not (string= lang "es"))
+	   (not (string= lang "en")))
+      (message "Invalid language %s" lang)
+    (setq maki-post-lang lang)
+    (rename-buffer 
+     (let ((currname (buffer-name)))
+       (if (string-match "-..-$" currname)
+	   (replace-match  (format "-%s-" lang) t t currname)
+	 )
+       )
+     )
+    (message "Language changed to %s" lang)
     )
   )
 
