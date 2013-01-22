@@ -85,6 +85,7 @@
 (define-key maki-mode-map "\C-c\ a" 'maki-login)
 (define-key maki-post-mode-map "\C-c\ a" 'maki-login)
 (define-key maki-post-mode-map "\C-c\ l" 'maki-post-set-lang)
+(define-key maki-post-mode-map "\C-c\ v" 'maki-post-visib-toggle)
 ;; end of keybinding
 
 ;; utilities
@@ -128,13 +129,12 @@
   (let ((url-request-extra-headers (maki-json-headers)))
     (if maki-debug
 	(message "Fetching '%s' " (maki-post-url pid)))
-    (url-retrieve  (maki-post-url pid) 'maki-show-post)))
+    (url-retrieve  (maki-post-url pid) 'maki-post-show)))
 
-(defun maki-save-post () 
+(defun maki-post-save () 
   "Save the changes to the blog post. Do not ask for confirmation."
   (interactive)
   (let* ((post (makehash))
-	 (is-new (null maki-post-id))
 	 (update-url nil))
     (save-excursion
       (puthash "title" (maki-get-current-title) post)
@@ -146,52 +146,51 @@
     (if maki-debug
 	(message "Posting post hash = %s\njson = %s " 
 		 post (json-encode post)))
-    (if is-new
+    (if (maki-post-is-new)
 	(progn 
 	  (setq update-url (maki-post-add-url))
-	  (puthash "lang" maki-post-lang post))
-      (setq update-url (maki-post-update-url maki-post-id)))
+	  (puthash "lang" (maki-post-lang) post))
+      (setq update-url (maki-post-update-url (maki-post-id))))
 
     (let ((cbuffer (current-buffer))
 	  (url-request-method "POST")
 	  (url-request-extra-headers (maki-json-headers))
 	  (url-request-data (json-encode post)))
-      (url-retrieve update-url  'maki-confirm-save
-		    (list cbuffer is-new)))))
+      (url-retrieve update-url  'maki-post-confirm-save
+		    (list cbuffer )))))
 
 
-(defun maki-confirm-save (status postbuff is-new) 
+(defun maki-post-confirm-save (status postbuff) 
   "Check the response of the server and inform the results."
-  (if (null status)
-      (let ((json-false nil)
-	    (json-object-type 'hash-table))
-	(let ((response (maki-get-json-response)))
-	  (with-current-buffer postbuff
-	    (if is-new
-		(let ((buffname nil)
-		      (posthash (json-read-from-string
-				 (gethash "message" response))))
-		  (setq maki-post-id (gethash "id" posthash))
-		  (rename-buffer (maki-get-buffname posthash))))
-	    (message "Post successfully saved")
-	    (set-buffer-modified-p nil))))
-    (message "Unable to save %s" status)
-    (let ((errcode (car (reverse (cadr status)))) )
-      (if (= errcode  418) ;; is a teapot 
-	  (message "You are not allowed, the server is a teapot >.<'")
-	(message "%s" (buffer-substring (point-min) (point-max))) )))) ;; show the response
+  (maki-req-callback
+   :success
+   (let ((json-false nil)
+	 (json-object-type 'hash-table))
+     (with-current-buffer postbuff
+       (if (maki-post-is-new)
+	   (let ((posthash (json-read-from-string
+			     (gethash "message" response))))
+	     (setq maki-post-hash posthash)
+	     (rename-buffer (maki-get-buffname))))
+       (message "Post successfully saved")
+       (set-buffer-modified-p nil)))
+   :error 
+   (let ((stcode (maki-req-resp status)))
+     (if (= stcode  418) ;; is a teapot 
+	 (message "You are not allowed, the server is a teapot >.<'")
+       (message "Unable to save post [%s]" stcode)))))
 
 
-(defun maki-ask-save-post () 
+(defun maki-post-ask-save () 
   "Save the changes to the blog post, but confirm first."
   (interactive)
   (if (buffer-modified-p) 
       (if (equal "y" (read-string "Do you really wanna save the changes? (y/n): "))
-	  (maki-save-post))
+	  (maki-post-save))
       (message "The blog post has not been modified.")))
 
 
-(defun maki-setup-post (buffname postc) 
+(defun maki-post-setup (buffname postc) 
   (progn
     (switch-to-buffer buffname)
     (maki-draw-post postc)
@@ -200,38 +199,29 @@
     (progn  ;; maki-post-mode minor mode changes
       (maki-post-mode)
       (maki-set-post-mode)
-      (setq maki-post-id (gethash "id" postc) 
-	    maki-post-lang (gethash "lang" postc maki-def-lang)
-	    maki-post-visib (gethash "public" postc)))))
+      (setq maki-post-hash postc))))
 
 
-(defun maki-show-post (status)
-  (if (null status)
-      (let* ((postc (maki-get-post-content)))
-	(setq buffname (maki-get-buffname postc))
-	(if  (get-buffer  buffname)
-	    (if (equal (read-string "The post is already loaded. Reload? (y/n): " ) "y")
-		(kill-buffer buffname))
-	  (generate-new-buffer buffname))
-	(setq maki-curr-post (gethash "id" postc)) ;; before switching buffer
-	(maki-setup-post buffname postc))
-    (message "Unable to fetch post %s " (cdr status))))
-
+(defun maki-post-show (status)
+  (let ((json-false nil))
+    (maki-req-callback 
+     :success (let* ((postc response)
+		     (buffname (maki-get-buffname postc)))
+		(if (get-buffer  buffname)
+		    (if (equal (read-string 
+				"The post is already loaded. Reload? (y/n): " ) "y")
+			(kill-buffer buffname))
+		  (generate-new-buffer buffname))
+		(setq maki-curr-post (gethash "id" postc)) ;; before switching buffer
+		(maki-post-setup buffname postc))
+     :error (message "Unable to fetch post"))))
 
 (defun maki-new-post ()
   "Set a new buffer with the default template."
   (interactive)
-  (let ((buffname (maki-get-buffname))
-	(dummypost (makehash)))
-    (maki-setup-post buffname dummypost)))
-
-
-(defun maki-get-post-content () 
-  "Parse the body of the GET response, return a hash with the received JSON."
-  (progn
-    (if maki-debug
-	(message "Parsing json post content"))
-    (maki-get-json-response)))
+  (let* ((dummypost (make-hash-table :test 'equal))
+	 (buffname (maki-get-buffname dummypost)))
+    (maki-post-setup buffname dummypost)))
 
 
 (defun maki-get-json-response () 
@@ -370,41 +360,40 @@
 
 (defun maki-login-check (status)
   "Validate the response of the server."
-  (if (null status)
-      (let ((json-false nil))
-	(let ((response (maki-get-json-response)))
-	  (if maki-debug
-	      (message "Login server response %s" response) )
-	  (if (null (gethash "authenticated" response))
-	      (message "Unable to login, Invalid authentication.")
-	    (message "Successfully logged in."))))
-    (message (buffer-substring (point-min) (point-max)))
-    (message "Unable to login")))
+  (let ((json-false nil))
+    (maki-req-callback
+     :success (progn
+		(if maki-debug
+		    (message "Login server response %s" response) )
+		(if (null (gethash "authenticated" response))
+		    (message "Unable to login, Invalid authentication.")
+		  (message "Successfully logged in.")))
+     :error (message "Unable to login"))))
 
 
-(defun maki-post-set-visibility (status) 
+
+(defun maki-post-set-visibility (visib) 
   (let* ((json-false nil)
 	 (url-request-method "POST")
-	 (url-request-extra-headers (maki-json-header))
-	 (url-request-data (json-encode '((id . ,maki-post-id)
-					 (public . ,status)))))
-    (url-retrieve (maki-visibility-url) 'maki-visibility-check)))
+	 (url-request-extra-headers (maki-json-headers))
+	 (url-request-data (json-encode `((id . ,(gethash "id" maki-post-hash))
+					 (public . ,visib)))))
+    (url-retrieve (maki-visibility-url) 
+		  'maki-post-visib-check  `(,visib ,(current-buffer)))))
 
-(defun maki-post-make-public ()
+(defun maki-post-visib-toggle ()
   (interactive) 
-  (maki-post-set-visibility t))
+  (let ((status (not (maki-post-visib))))
+    (if (maki-post-is-new) ;; if is new set the value in the local hash.
+	(message "You can't change the visibility of a new post.")
+      (maki-post-set-visibility status))))
 
-(defun maki-post-make-private ()
-  (interactive)
-  (maki-post-set-visibility nil))
-
-(defun maki-visibility-check (status)
-  (if (null status)
-      
-      )
-  )
-
-
+(defun maki-post-visib-check (status visib prebuff)
+  (maki-req-callback
+   :success (with-current-buffer prebuff
+	      (puthash "public" visib maki-post-hash)
+	      (rename-buffer (maki-get-buffname)))
+   :error  (message "Unable to change visibility")))
 
 
 (defun maki-auth-get-user (&optional refresh)
@@ -430,55 +419,62 @@
 
 
 (defun maki-get-buffname (&optional posthash) 
-  "Get the appropiate name of the maki post buffer from posthash"
-  (let ((slug "new") 
-	(id "*new*")
-	(lang maki-def-lang)
-	(is-public maki-post-visib)
-	(public-msg "PRIVATE"))
-    (if posthash
-	  (setq slug (gethash "slug" posthash)
-		id (gethash "id" posthash)
-		lang (gethash "lang" posthash)
-		is-public (gethash "public" posthash)))
-    (unless is-public (setq public-msg "PUBLIC"))
-    (format "%s [%s] -%s- -%s-" slug id public-msg lang)))
+  "Get the appropiate name of the maki post buffer from posthash.
+If `posthash' is nil, then use `maki-post-hash'.
+`maki-posthash' will not exists if this is not a `maki-post-mode'. buffer."
+  (let* ((post (if (null posthash) maki-post-hash posthash))
+	 (slug (gethash "slug" post "new"))
+	 (id (gethash "id" post "*new*"))
+	 (lang (gethash "lang" post maki-def-lang))
+	 (is-public (gethash "public" post nil))
+	 (public-msg (if is-public "PUBLIC" "PRIVATE")))
+    (format "%s [%s] {%s} -%s-" slug id lang public-msg )))
 
 
 (defun maki-set-post-mode () 
   "Setup the environment in the maki-post minor mode."
   (progn
-    (make-local-variable 'maki-post-id)
-    (make-local-variable 'maki-post-lang)
-    (make-local-variable 'maki-post-visib)
+    (make-local-variable 'maki-post-hash)
     ;; Overwrite the default save process, with a hardoced "t"
     ;; to always stop the chain of hooks.
     (make-local-variable 'write-file-functions)
     (setq write-file-functions 
 	  (list '(lambda () "Catch the save execution to save the changes"
-		   (progn (maki-ask-save-post) t))))))
-
-
-(defun maki-valid-lang? (lang)
-  (and (not (string= lang "es"))
-       (not (string= lang "en"))))
+		   (progn (maki-post-ask-save) t))))))
 
 
 (defun maki-post-set-lang (lang)
   "Set the language of the post"
   (interactive "sLang code (es/en): ")
-  (if (null maki-post-id)
+  (if (maki-post-is-new)
       (if (maki-valid-lang? lang)
 	  (message "Invalid language %s" lang)
-	(setq maki-post-lang lang)
-	(rename-buffer 
-	 (let ((currname (buffer-name)))
-	   (if (string-match "-..-$" currname)
-	       (replace-match  (format "-%s-" lang) t t currname))))
+	(puthash "lang" lang maki-post-hash)
+	(message (maki-get-buffname maki-post-hash))
+	(rename-buffer (maki-get-buffname) t)
 	(message "Language changed to %s" lang))
     (message "You can't change the laguage when the post already exists.")))
 
 
+
+(defmacro maki-req-callback (:success succ-expr :error err-expr)
+  "`:success' and `:error' are just place-holders"
+  `(if (null status)
+       (let ((response (maki-get-json-response)))
+	 (if maki-debug (message "%s" response))
+	 ,succ-expr)
+     ,err-expr
+     (if maki-debug  ;; show the full http response.
+	 (message "%s" (buffer-substring (point-min) (point-max))))))
+
+
+(defmacro maki-post-id () `(gethash "id" maki-post-hash))
+(defmacro maki-post-lang () `(gethash "lang" maki-post-hash))
+(defmacro maki-post-is-new () `(null ,(maki-post-id)))
+(defmacro maki-req-resp (status)`(car (reverse (cadr ,status))))
+(defmacro maki-valid-lang? (lang)
+  `(and (not (string= ,lang "es"))
+	(not (string= ,lang "en"))))
 
 
 (defun maki-mode ()
