@@ -104,7 +104,16 @@
 ;; url functions
 
 (defun maki-post-url (pid)
-  (concat maki-host maki-post-uri (number-to-string pid)))
+  "Return the appropiate URL of the post depending where the
+   pid is an id, url or slug."
+  (let ((baseurl (concat maki-host maki-post-uri)))
+    (cond 
+     ((string-match ".*/post/\\(.*\\)$" pid) ;; url
+      (let ((slug (match-string 1 pid)))
+	 (concat baseurl slug "?by=slug")))
+     ((string-match "^[0-9]+$" pid)  (concat baseurl pid)) ;; id
+     (t (let ((slug pid)) ;; if is not and id or a url, then is a slug;
+	  (concat baseurl slug "?by=slug"))))))
 
 
 (defun maki-post-add-url () 
@@ -124,8 +133,8 @@
 ;;
 
 (defun maki-get-post (pid)
-  "Fetch the JSON post with the id or slug (identifier) from the maki blog"
-  (interactive "nPost id: ")
+  "Fetch the JSON post with the id, url or slug  from the maki blog"
+  (interactive "sPost id|url|slug: ")
   (let ((url-request-extra-headers (maki-json-headers)))
     (if maki-debug
 	(message "Fetching '%s' " (maki-post-url pid)))
@@ -219,9 +228,9 @@
 (defun maki-new-post ()
   "Set a new buffer with the default template."
   (interactive)
-  (let* ((dummypost (make-hash-table :test 'equal))
-	 (buffname (maki-get-buffname dummypost)))
-    (maki-post-setup buffname dummypost)))
+  (let* ((newpost (maki-make-new-posth))
+	 (buffname (maki-get-buffname newpost)))
+    (maki-post-setup buffname newpost)))
 
 
 (defun maki-get-json-response () 
@@ -378,6 +387,9 @@
 	 (url-request-extra-headers (maki-json-headers))
 	 (url-request-data (json-encode `((id . ,(gethash "id" maki-post-hash))
 					 (public . ,visib)))))
+    (if maki-debug
+	(message "Setting the visibility with data: %s"
+		 url-request-data))
     (url-retrieve (maki-visibility-url) 
 		  'maki-post-visib-check  `(,visib ,(current-buffer)))))
 
@@ -467,10 +479,16 @@ If `posthash' is nil, then use `maki-post-hash'.
      (if maki-debug  ;; show the full http response.
 	 (message "%s" (buffer-substring (point-min) (point-max))))))
 
+(defmacro maki-make-new-posth () 
+  `(let ((posth (make-hash-table :test 'equal)))
+     (puthash "public" nil posth)
+     (puthash "lang" maki-def-lang posth)
+     posth))
 
 (defmacro maki-post-id () `(gethash "id" maki-post-hash))
 (defmacro maki-post-lang () `(gethash "lang" maki-post-hash))
 (defmacro maki-post-is-new () `(null ,(maki-post-id)))
+(defmacro maki-post-visib () `(gethash "public" maki-post-hash))
 (defmacro maki-req-resp (status)`(car (reverse (cadr ,status))))
 (defmacro maki-valid-lang? (lang)
   `(and (not (string= ,lang "es"))
