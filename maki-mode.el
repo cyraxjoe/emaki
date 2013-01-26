@@ -68,6 +68,12 @@
   :type 'boolean
   :group 'maki)
 
+(defcustom maki-autolist nil
+  "Try to login when the mode is invoked."
+  :type 'boolean
+  :group 'maki)
+
+
 (defcustom maki-mode-hook nil 
   "Hook caled by `maki-mode'. Use this to customize.")
 
@@ -103,6 +109,9 @@
 
 ;; url functions
 
+(defun maki-post-public-url (slug)
+  (concat maki-host maki-post-uri slug))
+
 (defun maki-post-url (pid)
   "Return the appropiate URL of the post depending where the
    pid is an id, url or slug."
@@ -114,6 +123,21 @@
      ((string-match "^[0-9]+$" pid)  (concat baseurl pid)) ;; id
      (t (let ((slug pid)) ;; if is not and id or a url, then is a slug;
 	  (concat baseurl slug "?by=slug"))))))
+
+
+(defun maki-post-list-url (&optional category public)
+  (let ((pl-url (concat maki-host maki-post-uri))
+	(qse ())
+	(qs ""))
+    (when category  (push (cons "category" category) qse))
+    (when (and  (not (null public)) (numberp public))
+      (push (cons "public" (number-to-string public)) qse))
+    (if qse (progn 
+	      (dolist (key-val qse )
+		(setq qs  (concat qs (format "%s=%s&" (car key-val ) (cdr key-val)))))
+	      (setq qs (substring qs 0 (- (length qs) 1))) ;; remove last &
+	      (concat pl-url "?" qs)) 
+      pl-url)))
 
 
 (defun maki-post-add-url () 
@@ -132,13 +156,57 @@
 
 ;;
 
+(defun maki-get-post-list (&optional category public)
+  (interactive)
+  (let ((plist-url (maki-post-list-url category public))
+	(cbuffer (current-buffer))
+	(url-request-extra-headers (maki-json-headers)))
+    (url-retrieve plist-url 'maki-show-post-list `(,cbuffer))))
+
+
+(defun maki-show-post-list (status mainbuff)
+  (let ((json-false nil)
+	(json-array-type 'list))
+    (maki-req-callback 
+     :success  
+     (with-current-buffer mainbuff
+       (setq buffer-read-only nil)
+       (let* ((postlist response))
+	 (insert "\n\n\n")
+	 (insert (propertize "Post list:" 'face 'bold))
+	 (dolist (post postlist)
+	   (insert "\n\n")
+	   (maki-list-insert-post post)))
+       (setq buffer-read-only t))
+     :error 
+     (message "Unable to show post list"))))
+
+
+(defun maki-util-open-link (link)
+  `(lambda (btn) (browse-url ,link)))
+
+  
+(defun maki-list-insert-post (post)
+  "Insert one post element in a list for the main buffer"
+  (let* ((title (propertize (gethash "title" post) 'face 'bold-italic))
+	 (abstract (propertize (gethash "abstract" post) 'face 'italic))
+	 (url (maki-post-public-url (gethash "slug" post)))
+	 (pid (gethash "id" post)))
+    (insert (format "  %s %s\n" (propertize "*" 'face 'bold-italic) title))
+    (insert (format "    %s\n" abstract))
+    (insert "    ")
+    (insert-button "[View] " 'action (maki-util-open-link url))
+    (insert-button " [Edit]" 'action `(lambda (btn) (maki-get-post ,url)))))
+
+
 (defun maki-get-post (pid)
   "Fetch the JSON post with the id, url or slug  from the maki blog"
   (interactive "sPost id|url|slug: ")
   (let ((url-request-extra-headers (maki-json-headers)))
     (if maki-debug
 	(message "Fetching '%s' " (maki-post-url pid)))
-    (url-retrieve  (maki-post-url pid) 'maki-post-show)))
+    (url-retrieve  (maki-post-url pid) 'maki-post-show )))
+
 
 (defun maki-post-save () 
   "Save the changes to the blog post. Do not ask for confirmation."
@@ -239,7 +307,7 @@
     (goto-char (point-max))
     (setq cnt (thing-at-point `line))
     (if maki-debug
-	(message "JSON Response content \n %s" cnt))
+	(message "JSON Response content \n\n%s\n\n\n\n----\n-" cnt))
     (json-read-from-string cnt)))
 
 
@@ -376,7 +444,8 @@
 		    (message "Login server response %s" response) )
 		(if (null (gethash "authenticated" response))
 		    (message "Unable to login, Invalid authentication.")
-		  (message "Successfully logged in.")))
+		  (message "Successfully logged in.")
+		  (url-cookie-write-file)))
      :error (message "Unable to login"))))
 
 
@@ -498,9 +567,9 @@ If `posthash' is nil, then use `maki-post-hash'.
 (defun maki-mode ()
   "Major mode to edit the maki blog."
   (interactive)
-  (progn 
-    (switch-to-buffer "*Maki*")
-    (insert maki-banner)
+  (let ((main-buff "*Maki*"))
+    (switch-to-buffer main-buff)
+    (insert (propertize maki-banner 'face 'bold))
     (kill-all-local-variables)
     (make-local-variable 'maki-curr-post)
     (setq maki-curr-post nil
@@ -509,7 +578,9 @@ If `posthash' is nil, then use `maki-post-hash'.
 	  buffer-read-only t)
     (use-local-map maki-mode-map)
     (if maki-autologin
-	(maki-login))))
+	(maki-login))
+    (if maki-autolist
+	(maki-get-post-list))))
 
 (define-minor-mode maki-post-mode
   "Set the minor mode for the post edition.
