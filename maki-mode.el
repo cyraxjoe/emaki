@@ -1,7 +1,10 @@
 ;; Maki mode
 ;;
+(add-to-list 'load-path "~/repos/emaki/")
+(require 'url-auth)
 (require 'url)
 (require 'json)
+
 
 (defconst maki-mode-version "0.1"
   "Version of `maki-mode'.")
@@ -21,11 +24,6 @@
 
 (defcustom maki-post-uri "/post/"
   "URI to fetch the post content"
-  :type 'string
-  :group 'maki)
-
-(defcustom maki-login-uri "/login/"
-  "URI to authenticate in the server."
   :type 'string
   :group 'maki)
 
@@ -63,13 +61,8 @@
   :type 'string
   :group 'maki)
 
-(defcustom maki-autologin nil
-  "Try to login when the mode is invoked."
-  :type 'boolean
-  :group 'maki)
-
 (defcustom maki-autolist nil
-  "Try to login when the mode is invoked."
+  "List the content when the mode is invoked."
   :type 'boolean
   :group 'maki)
 
@@ -88,8 +81,6 @@
       maki-post-mode-map (make-sparse-keymap))
 (define-key maki-mode-map "\C-c\ f" 'maki-get-post)
 (define-key maki-mode-map "\C-c\ n" 'maki-new-post)
-(define-key maki-mode-map "\C-c\ a" 'maki-login)
-(define-key maki-post-mode-map "\C-c\ a" 'maki-login)
 (define-key maki-post-mode-map "\C-c\ l" 'maki-post-set-lang)
 (define-key maki-post-mode-map "\C-c\ v" 'maki-post-visib-toggle)
 ;; end of keybinding
@@ -142,10 +133,6 @@
 
 (defun maki-post-add-url () 
   (concat maki-host maki-post-uri "/add/"))
-
-
-(defun maki-login-url ()
-  (concat maki-host maki-login-uri))
 
 
 (defun maki-post-update-url (pid)
@@ -202,7 +189,9 @@
 (defun maki-get-post (pid)
   "Fetch the JSON post with the id, url or slug  from the maki blog"
   (interactive "sPost id|url|slug: ")
-  (let ((url-request-extra-headers (maki-json-headers)))
+  (let ((url-request-extra-headers (maki-json-headers))
+	(url-debug t))
+;;    (setq url-digest-auth-storage nil)
     (if maki-debug
 	(message "Fetching '%s' " (maki-post-url pid)))
     (url-retrieve  (maki-post-url pid) 'maki-post-show )))
@@ -411,44 +400,6 @@
 	(tags ".. Tags"))
     (chomp (maki-get-range-from category tags))))
 
-;; 
-;; Authentication related function
-
-(defun maki-login-refreshed ()
-  (interactive)
-  (maki-login t))
-
-(defun maki-login (&optional refresh)
-  "Login to the server"
-  (interactive)
-  (let ((user (maki-auth-get-user refresh))
-	(passwd (maki-auth-get-passwd refresh)))
-    (let* ((url-request-method "POST")
-	   (url-request-extra-headers (maki-json-headers))
-	   (url-request-data 
-	    (json-encode (list (cons "user" user) 
-			       (cons "passwd" passwd)))))
-      (url-retrieve (maki-login-url) 'maki-login-check)
-      (if maki-debug
-	  (progn
-	    (message "Loggin in with %s %s" user passwd)
-	    (message "Request data %s" url-request-data))))))
-
-
-(defun maki-login-check (status)
-  "Validate the response of the server."
-  (let ((json-false nil))
-    (maki-req-callback
-     :success (progn
-		(if maki-debug
-		    (message "Login server response %s" response) )
-		(if (null (gethash "authenticated" response))
-		    (message "Unable to login, Invalid authentication.")
-		  (message "Successfully logged in.")
-		  (url-cookie-write-file)))
-     :error (message "Unable to login"))))
-
-
 
 (defun maki-post-set-visibility (visib) 
   (let* ((json-false nil)
@@ -577,8 +528,6 @@ If `posthash' is nil, then use `maki-post-hash'.
 	  mode-name "Maki"
 	  buffer-read-only t)
     (use-local-map maki-mode-map)
-    (if maki-autologin
-	(maki-login))
     (if maki-autolist
 	(maki-get-post-list))))
 
