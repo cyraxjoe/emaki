@@ -93,7 +93,7 @@
   str)
 
 (defun maki-json-headers ()
-  '(("Content-Type" . "application/json")
+  '(("Content-Type" . "application/json; charset=UTF-8")
     ("Accept" . "application/json")))
 ;;
 
@@ -165,7 +165,7 @@
            (maki-list-insert-post post)))
        (setq buffer-read-only t))
      :error
-     (message "Unable to show post list"))))
+     (message (concat "Unable to show post list: " status)))))
 
 
 (defun maki-util-open-link (link)
@@ -199,7 +199,7 @@
 (defun maki-post-save ()
   "Save the changes to the blog post. Do not ask for confirmation."
   (interactive)
-  (let* ((post (makehash))
+  (let* ((post (make-hash-table))
          (update-url nil))
     (save-excursion
       (puthash "title" (maki-get-current-title) post)
@@ -250,7 +250,7 @@
   "Save the changes to the blog post, but confirm first."
   (interactive)
   (if (buffer-modified-p)
-      (if (equal "y" (read-string "Do you really wanna save the changes? (y/n): "))
+      (if (equal "y" (read-string "Do you want to save the changes? (y/n): "))
           (maki-post-save))
     (message "The blog post has not been modified.")))
 
