@@ -1,6 +1,6 @@
 ;; Maki mode
 ;;
-(add-to-list 'load-path "~/repos/emaki/")
+;;(add-to-list 'load-path "~/repos/emaki/")
 (require 'url-auth)
 (require 'url)
 (require 'json)
@@ -165,7 +165,10 @@
            (maki-list-insert-post post)))
        (setq buffer-read-only t))
      :error
-     (message (concat "Unable to show post list: " status)))))
+     (message  "Unable to show post list: %s"
+               (or (plist-get status :error)
+                   (plist-get status :redirect)
+                   status)))))
 
 
 (defun maki-util-open-link (link)
@@ -259,9 +262,11 @@
   (progn
     (switch-to-buffer buffname)
     (maki-draw-post postc)
+    (goto-char (point-min))
     (set-visited-file-name buffname)
     (set-buffer-modified-p nil) ;; to remove the **
     (progn  ;; maki-post-mode minor mode changes
+      (rst-mode)
       (maki-post-mode)
       (maki-set-post-mode)
       (setq maki-post-hash postc))))
@@ -344,15 +349,12 @@
         (abstract (gethash "abstract" postc ""))
         (content (gethash "content" postc ""))
         (tags (gethash "tags" postc nil))
-        (category (gethash "category" postc ""))
-        (pformat (gethash "format" postc "rst")))
+        (category (gethash "category" postc "")))
     (maki-draw-post-title title)
     (maki-draw-post-abstract abstract)
     (maki-draw-post-category category)
     (maki-draw-post-tags tags)
-    (maki-draw-post-content content)
-    (cond ((equal pformat "rst") (rst-mode))
-          ((equal pformat "textile") (textile-mode)))))
+    (maki-draw-post-content content)))
 
 ;; End of "drawing" functions.
 
@@ -488,13 +490,13 @@ If `posthash' is nil, then use `maki-post-hash'.
 
 (defmacro maki-req-callback (:success succ-expr :error err-expr)
   "`:success' and `:error' are just place-holders"
-  `(if (null status)
+  `(if (or  (null status) (not  (plist-get status :error)))
        (let ((response (maki-get-json-response)))
          (if maki-debug (message "%s" response))
          ,succ-expr)
      ,err-expr
      (if maki-debug  ;; show the full http response.
-         (message "%s" (buffer-substring (point-min) (point-max))))))
+         (message "Response buffer: %s" (buffer-substring (point-min) (point-max))))))
 
 (defmacro maki-make-new-posth ()
   `(let ((posth (make-hash-table :test 'equal)))
